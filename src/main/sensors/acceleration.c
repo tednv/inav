@@ -69,6 +69,8 @@ static uint16_t calibratingA = 0;      // the calibration is done is the main lo
 
 static biquadFilter_t accFilter[XYZ_AXIS_COUNT];
 
+static void *accNotchFilter[XYZ_AXIS_COUNT];
+
 PG_REGISTER_WITH_RESET_FN(accelerometerConfig_t, accelerometerConfig, PG_ACCELEROMETER_CONFIG, 0);
 
 void pgResetFn_accelerometerConfig(accelerometerConfig_t *instance)
@@ -440,6 +442,7 @@ static void applyAccelerationZero(const flightDynamicsTrims_t * accZero, const f
 
 void accUpdate(void)
 {
+    float temp;
     if (!acc.dev.read(&acc.dev)) {
         return;
     }
@@ -450,7 +453,8 @@ void accUpdate(void)
 
     if (accelerometerConfig()->acc_lpf_hz) {
         for (int axis = 0; axis < XYZ_AXIS_COUNT; axis++) {
-            acc.accADC[axis] = lrintf(biquadFilterApply(&accFilter[axis], (float)acc.accADC[axis]));
+            temp = biquadFilterApply(&accFilter[axis], (float)acc.accADC[axis]);
+            acc.accADC[axis] = lrintf(biquadFilterApply(accNotchFilter[axis], temp));
         }
     }
 
@@ -476,10 +480,15 @@ void accSetCalibrationValues(void)
 
 void accInitFilters(void)
 {
+    static biquadFilter_t accFilterNotch[XYZ_AXIS_COUNT];
+
     if (acc.accTargetLooptime && accelerometerConfig()->acc_lpf_hz) {
         for (int axis = 0; axis < XYZ_AXIS_COUNT; axis++) {
             biquadFilterInitLPF(&accFilter[axis], accelerometerConfig()->acc_lpf_hz, acc.accTargetLooptime);
-        }
+
+            accNotchFilter[axis] = &accFilterNotch[axis];
+            biquadFilterInitNotch(accNotchFilter[axis], acc.accTargetLooptime, 75, 30);
+        }    
     }
 }
 
